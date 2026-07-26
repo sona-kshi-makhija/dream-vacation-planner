@@ -1,0 +1,59 @@
+# Runs the whole stack locally with one command: docker compose up --build
+#
+# Three containers:
+#   mysql    - MySQL 8 database, with schema.sql auto-loaded on first start
+#   backend  - Express REST API (port 5000, reachable inside the network as "backend")
+#   frontend - Nginx serving the built React app (port 80 -> exposed as localhost:8080)
+#
+# This is for local development / testing. For the real AWS deployment,
+# follow the "Deploying to AWS" section in README.md instead (RDS + EC2 + ALB).
+
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: dream_vacation_planner
+    ports:
+      - "3307:3306"   # host 3307 -> container 3306, avoids clashing with a local MySQL install
+    volumes:
+      - db_data:/var/lib/mysql
+      # Auto-runs once when the container is first created with an empty data dir
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpassword"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      PORT: 5000
+      NODE_ENV: production
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: rootpassword
+      DB_NAME: dream_vacation_planner
+      CORS_ORIGIN: http://localhost:8080
+      JWT_SECRET: docker-local-dev-secret-change-me
+      JWT_EXPIRES_IN: 7d
+    expose:
+      - "5000"
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
+volumes:
+  db_data:
